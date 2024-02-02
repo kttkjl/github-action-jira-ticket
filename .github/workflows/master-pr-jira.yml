@@ -2,6 +2,7 @@ name: Create JIRA ticket on release PR creation
 
 on:
   pull_request:
+    types: [opened]
     branches:
       - master
 
