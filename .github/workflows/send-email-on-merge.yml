@@ -1,0 +1,92 @@
+name: Email test for master
+
+on:
+  pull_request:
+    branches:
+      - actions/KBDEV-1393-test  # Target production branch
+    types: [closed]
+
+jobs:
+  send-email:
+    # Only execute if the PR was closed by merging (not just cancelled)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Send PR Body via Outlook
+        env:
+          # SMTP Credentials from GitHub Secrets
+          EMAIL_USER: ${{ secrets.OUTLOOK_EMAIL }}
+          EMAIL_PASS: ${{ secrets.OUTLOOK_PASSWORD }}
+          # PR Metadata
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          RECIPIENT_EMAIL: ${{ vars.OUTLOOK_TARGET_EMAIL }}
+        run: |
+          python -c "
+          import smtplib, os
+          from email.mime.multipart import MIMEMultipart
+          from email.mime.text import MIMEText
+
+          # Setup variables
+          sender = os.environ['EMAIL_USER']
+          password = os.environ['EMAIL_PASS']
+          recipient = os.environ['RECIPIENT_EMAIL']
+          pr_title = os.environ['PR_TITLE']
+          pr_author = os.environ['PR_AUTHOR']
+          pr_url = os.environ['PR_URL']
+          # Default message if PR body is empty
+          pr_body = os.environ.get('PR_BODY') or 'No description provided.'
+
+          # Outlook-friendly HTML Formatting
+          html_content = f'''
+          <html>
+            <body style=\"font-family: 'Segoe UI', Calibri, Arial, sans-serif; color: #333333; line-height: 1.6;\">
+              <div style=\"background-color: #0078d4; padding: 20px; color: #ffffff;\">
+                <h1 style=\"margin: 0; font-size: 20px;\">Pull Request Merged</h1>
+              </div>
+              <div style=\"padding: 20px; border: 1px solid #e0e0e0; border-top: none;\">
+                <p><strong>Title:</strong> {pr_title}</p>
+                <p><strong>Merged By:</strong> {pr_author}</p>
+                <p><strong>View PR:</strong> <a href=\"{pr_url}\" style=\"color: #0078d4;\">{pr_url}</a></p>
+                <hr style=\"border: none; border-top: 1px solid #eeeeee; margin: 20px 0;\" />
+                <h3 style=\"color: #555555;\">Pull Request Description:</h3>
+                <div style=\"background-color: #f4f4f4; padding: 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; white-space: pre-wrap;\">
+          {pr_body}
+                </div>
+              </div>
+              <p style=\"font-size: 11px; color: #999999; text-align: center; margin-top: 20px;\">
+                Sent via GitHub Actions Automation 2026
+              </p>
+            </body>
+          </html>
+          '''
+
+          # Email Object Construction
+          msg = MIMEMultipart('alternative')
+          msg['Subject'] = f'Merged: {pr_title}'
+          msg['From'] = sender
+          msg['To'] = recipient
+          msg.attach(MIMEText(html_content, 'html'))
+
+          # SMTP Transaction
+          try:
+              # Outlook/Office 365 SMTP Settings
+              with smtplib.SMTP('smtp.office365.com', 587) as server:
+                  server.starttls()
+                  server.login(sender, password)
+                  server.send_message(msg)
+              print('Success: Email sent to Outlook server.')
+          except Exception as e:
+              print(f'Error: Failed to send email. {e}')
+              exit(1)
+          "
